@@ -1,0 +1,91 @@
+version: '3.8'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.2
+    container_name: elasticsearch
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - elk
+#    healthcheck:
+#      test: [ "CMD", "curl", "-s", "-f", "http://localhost:9200/_cluster/health" ]
+#      interval: 3s
+#      timeout: 3s
+#      retries: 1
+    environment:
+      ES_JAVA_OPTS: -Xms750m -Xmx750m
+      ELASTIC_PASSWORD: quangpn
+      KIBANA_PASSWORD: kibanapass
+      discovery.type: single-node
+#      network.host: 0.0.0.0
+#      network.bind_host: 0.0.0.0
+      xpack.security.http.ssl.enabled: false
+      cluster.routing.allocation.disk.threshold_enabled: false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+  kibana:
+    depends_on:
+     - elasticsearch
+#        condition: service_healthy
+    image: docker.elastic.co/kibana/kibana:8.12.2
+    container_name: kibana
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+    ports:
+      - 5601:5601
+    networks:
+      - elk
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=kibanapass
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.12.2
+    container_name: logstash
+    volumes:
+      - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+      - "5044:5044"
+      - "50000:50000/udp"
+      - "9600:9600"
+    environment:
+      - LS_JAVA_OPTS=-Xmx256m -Xms256m
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASSWORD=quangpn
+      - ELASTIC_HOSTS=http://elasticsearch:9200
+    healthcheck:
+      test: bin/logstash -t
+      interval: 60s
+      timeout: 50s
+      retries: 3
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.12.2
+    container_name: filebeat
+    depends_on:
+#      - logstash
+      logstash:
+        condition: service_healthy
+    volumes:
+      - ./logs:/var/log/server
+      - ./config/filebeat.yml:/usr/share/filebeat/filebeat.yml
+    networks:
+      - elk
+    command: ["--strict.perms=false"]
+volumes:
+  elasticsearch-data:
+    driver: local
+  kibana-data:
+    driver: local
+  logstash-data:
+    driver: local
+networks:
+  elk:
+    driver: bridge
